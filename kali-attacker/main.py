@@ -34,12 +34,14 @@ class CyberAttackEnv(gym.Env):
         self.steps = 0
         self.max_steps = 20
 
+        self.had_waited = False
+
         # save for states
         self.ip_detected = None
         self.port_detected = None
 
         self.ip_selected = None
-        self.ports_selected = None
+        self.ports_selected = []
 
         self.Q_table = None
 
@@ -47,13 +49,15 @@ class CyberAttackEnv(gym.Env):
         self.steps = 0
 
         # Randomly decide which services are open
-        ip_detected = 0
-        ftp = random.choice([0, 1])
-        ssh = random.choice([0, 1])
-        vsftpd = random.choice([0, 1])
+        self.ip_detected = 0
+        self.ip_selected = None
+
+        # self.ports_selected = random.sample([21, 22, 2121], random.randint(1, 3))
+        self.ports_selected = []
 
         # Flags for scan and exploitation
-        self.state = np.array([ip_detected, ftp, ssh, vsftpd], dtype=np.int8)
+        # self.state = np.array([self.ip_detected] + self.ports_detected_env_fmt(), dtype=np.int8)
+        self.state = np.array([self.ip_detected, 0, 0, 0], dtype=np.int8)
 
         return self.state, {}
 
@@ -67,10 +71,15 @@ class CyberAttackEnv(gym.Env):
 
         # Define action consequences
         if action == 0:  # wait
+            self.had_waited = True
             reward = -2
 
         elif action == 1:  # scan for ip
-            ip_detection_threshold = 0.2
+            ip_detection_threshold = 0.5
+
+            if self.had_waited :
+                ip_detection_threshold += 0.2
+                self.had_waited = False
             # generated random float between 0 and 1
             ip_detected = random.random() < ip_detection_threshold
 
@@ -90,16 +99,22 @@ class CyberAttackEnv(gym.Env):
                 if port_detected:
                     number_open_ports = random.randint(1, 3)
 
+                    if self.had_waited:
+                        number_open_ports = np.min([1 + number_open_ports, 3])
+                        self.had_waited = False
+
                     self.ports_selected = random.sample([21, 22, 2121], number_open_ports)
                     self.port_detected = True
 
+        elif action in [3, 4, 5] and not self.ip_detected:
+            reward = -50
 
         elif action == 3:  # bruteforce ftp
             done = True
             ftp_success_threshold = 0.1
 
             if 2121 in self.ports_selected:
-                ftp_success_threshold += 0.5
+                ftp_success_threshold += 0.8
 
             if random.random() < ftp_success_threshold :
                 reward = 10
@@ -111,7 +126,7 @@ class CyberAttackEnv(gym.Env):
             ssh_success_threshold = 0.1
 
             if 22 in self.ports_selected:
-                ssh_success_threshold += 0.5
+                ssh_success_threshold += 0.8
 
             if random.random() < ssh_success_threshold:
                 reward = 10
@@ -123,7 +138,7 @@ class CyberAttackEnv(gym.Env):
             vsftpd_success_threshold = 0.1
 
             if 21 in self.ports_selected:
-                vsftpd_success_threshold += 0.5
+                vsftpd_success_threshold += 0.8
 
             if random.random() < vsftpd_success_threshold:
                 reward = 10
@@ -131,14 +146,15 @@ class CyberAttackEnv(gym.Env):
                 reward = -10
 
         # Update state
-        self.state = np.array([self.ip_detected] + self.ports_detected(), dtype=np.int8)
+        self.state = np.array([1 if self.ip_detected else 0] + self.ports_detected_env_fmt(), dtype=np.int8)
 
         if self.steps >= self.max_steps:
+            print("Max steps reached")
             truncated = True
 
         return self.state, reward, done, truncated, {}
 
-    def ports_detected(self) -> list[int]:
+    def ports_detected_env_fmt(self) -> list[int]:
         """
         Return the state of the ports detected.
         ports symbols : [ftp, ssh, vsftpd]
@@ -179,23 +195,33 @@ class CyberAttackEnv(gym.Env):
 
         self.Q_table = np.zeros((2, 2, 2, 2, 6))
 
+        rewards_sum_history = []
+
         for episode in range(num_episode):
 
             state, _ = self.reset()
             done = False
+            truncated = False
+            reward_sum = 0
+            print('\n')
+            self.render(None, reward_sum)
 
-            while not done:
+            while not (done or truncated):
                 if random.uniform(0, 1) < epsilon:
-                    action = self.action_space.sample()
+                    action = random.choice(range(self.action_space.n))
+
                 else:
-                    action = np.argmax(self.Q_table[state])
+                    action = np.argmax(self.Q_table[tuple(state)])
+
                 next_state, reward, done, truncated, _ = self.step(action)
 
                 # Update Q-table
                 self.Q_table[tuple(state)][action] += alpha * (reward + gamma * np.max(self.Q_table[tuple(next_state)]) - self.Q_table[tuple(state)][action])
                 state = next_state
-                self.render()
-                if done:
+                reward_sum += reward
+                self.render(action, reward_sum)
+
+                if done or truncated:
                     print(f"Episode {episode} finished after {self.steps} steps with reward: {reward}")
                     break
 
@@ -204,19 +230,17 @@ class CyberAttackEnv(gym.Env):
                 epsilon *= epsilon_decay
 
 
-    def render(self):
-        print(f"Step {self.steps} - State: {self.state}")
+
+    def render(self, action=None, reward=None):
+        render_output = f"Step {self.steps} - State: {self.state}"
+        render_output += f" - Action: {action}" if action is not None else ""
+        render_output += f" - Reward: {reward}" if reward is not None else ""
+
+        print(render_output)
 
     def close(self):
         pass
 
-
-
-def random_action():
-    """
-    Randomly select an action from the action space.
-    """
-    return random.randint(0, 6)
 
 
 # Quick testing
@@ -228,7 +252,7 @@ if __name__ == "__main__":
     env.train()
 
     env.render()
-    env.play_q_table()
+    # env.play_q_table()
 
     env.render()
 
