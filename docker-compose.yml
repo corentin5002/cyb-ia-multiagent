@@ -1,0 +1,96 @@
+# Réseau interne identique au TP (192.168.10.0/24)
+networks:
+  cyber-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.10.0/24
+
+# Volume persistant pour les logs Suricata
+volumes:
+  suricata-logs:
+
+services:
+
+  kali:
+    # Chemin vers Dockerfile.kali (cf. dossier ./kali)
+    build:
+      context: ./kali-attacker
+    container_name: kali-attacker
+    hostname: kali
+    networks:
+      cyber-net:
+        ipv4_address: 192.168.10.10
+    tty: true               # garder la session interactive
+    stdin_open: true
+    volumes:
+      - ./shared:/share      # volume commun facultatif
+    command: /bin/bash       # ou ./run_agent.sh pour lancer ton Q‑learning
+
+  metasploitable2:
+    image: tleemcjr/metasploitable2
+    container_name: metasploitable2
+    hostname: victim
+    networks:
+      cyber-net:
+        ipv4_address: 192.168.10.15
+    privileged: true
+    cap_add: [ NET_ADMIN, NET_RAW ]
+    tty: true
+    stdin_open: true
+    expose:
+      - "21"
+      - "22"
+      - "23"
+      - "25"
+      - "80"
+      - "111"
+      - "139"
+      - "445"
+      - "513"
+      - "514"
+      - "2121"
+      - "3306"
+      - "5432"
+    environment:
+      - RSYSLOG_REMOTE_SERVER=defender
+
+  defender:
+    # Chemin vers Dockerfile.defender (dossier ./defender)
+    build:
+      context: ./ubuntu-defender
+    container_name: ubuntu-defender
+    hostname: defender
+    networks:
+      cyber-net:
+        ipv4_address: 192.168.10.20
+    cap_add:                # droits nécessaires pour Suricata/iptables
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    volumes:
+      - suricata-logs:/var/log/suricata
+      - ./defender/scripts:/opt/agent  # tes scripts Random‑Forest + utils
+    command: >
+      sh -c "suricata -D -i eth0 && \
+             python3 /opt/agent/defender.py"
+    depends_on:
+      - metasploitable2
+    tty: true
+    stdin_open: true
+
+  # --- Service optionnel : visualisation Streamlit en temps réel ---
+  # visualizer:
+  #   image: python:3.11-slim
+  #   container_name: visualizer
+  #   networks:
+  #     cyber-net:
+  #   volumes:
+  #     - suricata-logs:/data/logs
+  #     - ./visualizer:/app
+  #   working_dir: /app
+  #   command: streamlit run dashboard.py --server.port 8501
+  #   ports:
+  #     - "8501:8501"
+  #   depends_on:
+  #     - defender
