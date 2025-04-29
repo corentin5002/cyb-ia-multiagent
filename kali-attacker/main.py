@@ -1,3 +1,5 @@
+import time
+
 import gym
 from gym import spaces
 import numpy as np
@@ -5,6 +7,7 @@ import random
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
+from attack_functions import get_active_ips, get_active_ports
 
 # FILTER THIS IP ITS THE OWNER (myself)
 # 192.168.10.1
@@ -257,7 +260,7 @@ class CyberAttackEnv(gym.Env):
         """
         Save the Q-table to a .npy file.
         """
-        # Automatically add .npy if missing
+
         if not Q_table_path.endswith(".npy"):
             Q_table_path += ".npy"
 
@@ -268,7 +271,7 @@ class CyberAttackEnv(gym.Env):
         """
         Load a Q-table from a .npy file.
         """
-        # Automatically add .npy if missing
+
         if not Q_table_path.endswith(".npy"):
             Q_table_path += ".npy"
 
@@ -288,6 +291,94 @@ class CyberAttackEnv(gym.Env):
         except Exception as e:
             print(f"Failed to load Q-table: {e}")
 
+    def attack_for_real(self):
+        """
+        Execute the attack using the Q-table.
+        """
+        self.reset()
+        done = False
+        print("[*] Launching real-world attack using Q-table...")
+
+        while not done:
+            action = np.argmax(self.Q_table[tuple(self.state)])
+
+            if action == 0:  # Wait
+                print("[*] Waiting... (no action)")
+                # Nothing changes in the state
+
+            elif action == 1:  # Scan for IPs
+                print("[*] Scanning for active IPs...")
+                active_ips = get_active_ips()
+
+                active_ips = [ip for ip in active_ips if ip not in ["192.168.10.1", "192.168.10.10"]]
+                if active_ips:
+                    self.ip_selected = active_ips[0]
+                    self.ip_detected = True
+                    print(f"[+] Target IP detected: {self.ip_selected}")
+                else:
+                    self.ip_detected = False
+                    self.ip_selected = None
+                    print("[-] No target IP found.")
+
+            elif action == 2:  # Scan for ports
+                if not self.ip_detected:
+                    print("[-] No IP detected yet. Skipping port scan.")
+                else:
+                    print(f"[*] Scanning open ports on {self.ip_selected}...")
+                    open_ports = get_active_ports(self.ip_selected)
+                    if open_ports:
+                        self.ports_selected = [int(p) for p in open_ports]
+                        self.port_detected = True
+                        print(f"[+] Open ports found: {self.ports_selected}")
+                    else:
+                        self.ports_selected = []
+                        self.port_detected = False
+                        print("[-] No open ports detected.")
+
+            elif action == 3:  # Bruteforce FTP
+                if not self.ip_detected:
+                    print("[-] No IP detected. Cannot bruteforce FTP.")
+                else:
+                    print(f"[*] (Would bruteforce FTP on {self.ip_selected})")
+
+            elif action == 4:  # Bruteforce SSH
+                if not self.ip_detected:
+                    print("[-] No IP detected. Cannot bruteforce SSH.")
+                else:
+                    print(f"[*] (Would bruteforce SSH on {self.ip_selected})")
+
+            elif action == 5:  # Exploit vsftpd
+                if not self.ip_detected:
+                    print("[-] No IP detected. Cannot exploit vsftpd.")
+                else:
+                    print(f"[*] (Would exploit vsftpd on {self.ip_selected})")
+
+            # -------- UPDATE STATE MANUALLY BASED ON REALITY --------
+            # ports_selected = [21, 22, 2121]
+            ftp_detected = 1 if 2121 in self.ports_selected else 0
+            ssh_detected = 1 if 22 in self.ports_selected else 0
+            vsftpd_detected = 1 if 21 in self.ports_selected else 0
+
+            self.state = np.array([
+                1 if self.ip_detected else 0,
+                ftp_detected,
+                ssh_detected,
+                vsftpd_detected
+            ], dtype=np.int8)
+
+            # step forward
+            self.steps += 1
+            self.render(action=action)
+
+            if action in [3, 4, 5]:  # Bruteforce/Exploit actions => End attack
+                done = True
+
+            if self.steps >= self.max_steps:
+                print("[*] Max steps reached.")
+                done = True
+
+        print(f"[*] Attack finished after {self.steps} steps.")
+        return self.state
 
 # Quick testing
 if __name__ == "__main__":
