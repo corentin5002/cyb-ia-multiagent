@@ -2,6 +2,9 @@ import gym
 from gym import spaces
 import numpy as np
 import random
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
 
 # FILTER THIS IP ITS THE OWNER (myself)
 # 192.168.10.1
@@ -45,6 +48,9 @@ class CyberAttackEnv(gym.Env):
 
         self.Q_table = None
 
+        # metrics
+        self.history_train = pd.DataFrame(columns=["episode", "reward", "steps", "epsilon"])
+
     def reset(self, seed=None, options=None):
         self.steps = 0
 
@@ -61,7 +67,7 @@ class CyberAttackEnv(gym.Env):
 
         return self.state, {}
 
-    def step(self, action):
+    def step(self, action, display=True):
         self.steps += 1
         reward = -1  # small negative reward per action
         done = False
@@ -149,7 +155,8 @@ class CyberAttackEnv(gym.Env):
         self.state = np.array([1 if self.ip_detected else 0] + self.ports_detected_env_fmt(), dtype=np.int8)
 
         if self.steps >= self.max_steps:
-            print("Max steps reached")
+            if display:
+                print("Max steps reached")
             truncated = True
 
         return self.state, reward, done, truncated, {}
@@ -171,12 +178,12 @@ class CyberAttackEnv(gym.Env):
         state, _ = self.reset()
         done = False
 
-
+        print("Playing with Q-table...")
         if Q_table is None:
             Q_table = self.Q_table
 
         while not done:
-            action = np.argmax(Q_table[state])
+            action = np.argmax(Q_table[tuple(state)])
             state, reward, done, _, _ = self.step(action)
             self.render()
 
@@ -186,7 +193,7 @@ class CyberAttackEnv(gym.Env):
 
         return state, reward, done
 
-    def train(self, num_episode=1000):
+    def train(self, num_episode:int =1000,display:bool =True):
 
         alpha = 0.1
         gamma = 0.9
@@ -203,8 +210,9 @@ class CyberAttackEnv(gym.Env):
             done = False
             truncated = False
             reward_sum = 0
-            print('\n')
-            self.render(None, reward_sum)
+            if display:
+                print('\n')
+                self.render(None, reward_sum)
 
             while not (done or truncated):
                 if random.uniform(0, 1) < epsilon:
@@ -213,23 +221,27 @@ class CyberAttackEnv(gym.Env):
                 else:
                     action = np.argmax(self.Q_table[tuple(state)])
 
-                next_state, reward, done, truncated, _ = self.step(action)
+                next_state, reward, done, truncated, _ = self.step(action, display=False)
 
                 # Update Q-table
                 self.Q_table[tuple(state)][action] += alpha * (reward + gamma * np.max(self.Q_table[tuple(next_state)]) - self.Q_table[tuple(state)][action])
                 state = next_state
                 reward_sum += reward
-                self.render(action, reward_sum)
+
+                if display:
+                    self.render(action, reward_sum)
 
                 if done or truncated:
-                    print(f"Episode {episode} finished after {self.steps} steps with reward: {reward}")
+                    if display:
+                        print(f"Episode {episode} finished after {self.steps} steps with reward: {reward}")
                     break
+
+            # store metrics
+            self.history_train = pd.concat([self.history_train, pd.DataFrame({"episode": [episode], "reward": [reward_sum], "steps": [self.steps], "epsilon": [epsilon]})], ignore_index=True)
 
             # Decay epsilon
             if epsilon > 0.05:
                 epsilon *= epsilon_decay
-
-
 
     def render(self, action=None, reward=None):
         render_output = f"Step {self.steps} - State: {self.state}"
@@ -241,6 +253,40 @@ class CyberAttackEnv(gym.Env):
     def close(self):
         pass
 
+    def save_q_table(self, Q_table_path: str):
+        """
+        Save the Q-table to a .npy file.
+        """
+        # Automatically add .npy if missing
+        if not Q_table_path.endswith(".npy"):
+            Q_table_path += ".npy"
+
+        np.save(Q_table_path, self.Q_table)
+        print(f"Q-table successfully saved to {Q_table_path}")
+
+    def load_q_table(self, Q_table_path: str):
+        """
+        Load a Q-table from a .npy file.
+        """
+        # Automatically add .npy if missing
+        if not Q_table_path.endswith(".npy"):
+            Q_table_path += ".npy"
+
+        if not os.path.exists(Q_table_path):
+            raise FileNotFoundError(f"The file {Q_table_path} does not exist!")
+
+        try:
+            loaded_table = np.load(Q_table_path)
+
+            if loaded_table.shape != self.Q_table.shape:
+                print(
+                    f"Warning: Loaded Q-table shape {loaded_table.shape} does not match expected {self.Q_table.shape}")
+
+            self.Q_table = loaded_table
+            print(f"Q-table successfully loaded from {Q_table_path}")
+
+        except Exception as e:
+            print(f"Failed to load Q-table: {e}")
 
 
 # Quick testing
@@ -249,12 +295,22 @@ if __name__ == "__main__":
     obs, _ = env.reset()
     done = False
 
-    env.train()
+    env.train(display=False)
 
-    env.render()
-    # env.play_q_table()
+    # plot the env.history
+    fig, axes = plt.subplots(3, 1, figsize=(10, 15))
 
-    env.render()
+    env.history_train.plot(x="episode", y="reward", title="Reward per episode", xlabel="Episode", ylabel="Reward", ax=axes[0], color="green")
+    env.history_train.plot(x="episode", y="steps", title="Steps per episode", xlabel="Episode", ylabel="Steps", ax=axes[1], color="orange")
+    env.history_train.plot(x="episode", y="epsilon", title="Epsilon per episode", xlabel="Episode", ylabel="Epsilon", ax=axes[2])
+
+    plt.tight_layout()
+    plt.show()
+
+    env.save_q_table("q_table.npy")
+    env.load_q_table("q_table.npy")
+
+    env.play_q_table()
 
     env.close()
 
