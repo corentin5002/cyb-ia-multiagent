@@ -1,10 +1,10 @@
+import time
 import gym
 from gym import spaces
 import numpy as np
 import random
-import pandas as pd
 import os
-from attack_functions import get_active_ips, get_active_ports
+from attack_functions import *
 
 class CyberAttackEnv(gym.Env):
     """
@@ -44,9 +44,6 @@ class CyberAttackEnv(gym.Env):
         self.ports_selected = []
 
         self.Q_table = None
-
-        # metrics
-        self.history_train = pd.DataFrame(columns=["episode", "reward", "steps", "epsilon"])
 
     def reset(self, seed=None, options=None):
         self.steps = 0
@@ -233,9 +230,6 @@ class CyberAttackEnv(gym.Env):
                         print(f"Episode {episode} finished after {self.steps} steps with reward: {reward}")
                     break
 
-            # store metrics
-            self.history_train = pd.concat([self.history_train, pd.DataFrame({"episode": [episode], "reward": [reward_sum], "steps": [self.steps], "epsilon": [epsilon]})], ignore_index=True)
-
             # Decay epsilon
             if epsilon > 0.05:
                 epsilon *= epsilon_decay
@@ -294,21 +288,24 @@ class CyberAttackEnv(gym.Env):
         print("[*] Launching real-world attack using Q-table...")
 
         while not done:
-            action = np.argmax(self.Q_table[tuple(self.state)])
+            # print(f"[*] Current state: {self.state}")
+            print(f"[*] q_table type: {type(self.Q_table)}")
+            state_tuple = tuple(int(x) for x in self.state)
+            action = np.argmax(self.Q_table[state_tuple])
 
             if action == 0:  # Wait
                 print("[*] Waiting... (no action)")
-                # Nothing changes in the state
+                time.sleep(3)
 
             elif action == 1:  # Scan for IPs
                 print("[*] Scanning for active IPs...")
                 active_ips = get_active_ips()
 
-                active_ips = [ip for ip in active_ips if ip not in ["192.168.10.1", "192.168.10.10"]]
                 if active_ips:
                     self.ip_selected = active_ips[0]
                     self.ip_detected = True
                     print(f"[+] Target IP detected: {self.ip_selected}")
+
                 else:
                     self.ip_detected = False
                     self.ip_selected = None
@@ -334,18 +331,21 @@ class CyberAttackEnv(gym.Env):
                     print("[-] No IP detected. Cannot bruteforce FTP.")
                 else:
                     print(f"[*] (Would bruteforce FTP on {self.ip_selected})")
+                    attack_ftp(self.ip_selected)
 
             elif action == 4:  # Bruteforce SSH
                 if not self.ip_detected:
                     print("[-] No IP detected. Cannot bruteforce SSH.")
                 else:
                     print(f"[*] (Would bruteforce SSH on {self.ip_selected})")
+                    attack_ssh(self.ip_selected)
 
             elif action == 5:  # Exploit vsftpd
                 if not self.ip_detected:
                     print("[-] No IP detected. Cannot exploit vsftpd.")
                 else:
                     print(f"[*] (Would exploit vsftpd on {self.ip_selected})")
+                    attack_vsftpd(self.ip_selected)
 
             # -------- UPDATE STATE MANUALLY BASED ON REALITY --------
             # ports_selected = [21, 22, 2121]

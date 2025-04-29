@@ -1,7 +1,6 @@
-# kali/Dockerfile
-ARG BASE_IMAGE=kalilinux/kali-rolling
-FROM ${BASE_IMAGE}
+FROM kalilinux/kali-rolling
 
+# Install system dependencies
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     nmap \
@@ -13,27 +12,32 @@ RUN apt-get update && \
     python3-venv \
     python3-dev \
     build-essential \
-    python3-numpy && \
+    wget \
+    curl && \
     ln -sf /usr/bin/python3 /usr/bin/python && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
-7
-# path to rockyou.txt : /usr/share/wordlists/rockyou.txt
+
+# Setup virtual environment
+RUN python3 -m venv /opt/venv
+
+# Install Python packages
+RUN /opt/venv/bin/pip install --upgrade pip && \
+    /opt/venv/bin/pip install --no-cache-dir \
+        numpy \
+        gym==0.26.2
+
+# Copy your project files
 COPY rockyou-short.txt /usr/share/wordlists/rockyou.txt
+COPY main.py /root/main.py
+COPY attack_functions.py /root/attack_functions.py
+COPY cyberattackenv.py /root/cyberattackenv.py
+COPY q_table.npy /root/q_table.npy
 
-# set up python with libraries
-RUN python3 -m venv /opt/venv && \
-    . /opt/venv/bin/activate && \
-    pip install --upgrade pip && \
-    pip install --no-cache-dir \
-        pandas \
+ENV PATH="/opt/venv/bin:$PATH"
 
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
-        chromium-driver \
-        chromium && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
+# Set working directory
 WORKDIR /root
+
+# Default command
 CMD ["/bin/bash"]
